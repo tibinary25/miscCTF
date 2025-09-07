@@ -12,7 +12,7 @@ class QuaternionCTFSolver:
         """Quaternion conjugate"""
         return np.array([q[0], -q[1], -q[2], -q[3]])
     
-def mul(self, q1, q2):
+    def mul(self, q1, q2):
         """Quaternion multiplication"""
         w1, x1, y1, z1 = q1
         w2, x2, y2, z2 = q2
@@ -23,21 +23,21 @@ def mul(self, q1, q2):
             w1*z2 + x1*y2 - y1*x2 + z1*w2
         ])
     
-def rotate(self, v, q):
+    def rotate(self, v, q):
         """Apply quaternion rotation to vector"""
         return self.mul(self.mul(q, v), self.conj(q))
     
-def inverse_rotate(self, v, q):
+    def inverse_rotate(self, v, q):
         """Apply inverse quaternion rotation"""
         return self.rotate(v, self.conj(q))
     
-def analyze_structure(self):
+    def analyze_structure(self):
         """Analyze the mathematical structure of the challenge"""
         print("QUATERNION CTF CHALLENGE ANALYSIS")
         print("=" * 50)
         print(f"Number of data points: {len(self.ar)}")
         print(f"Total flag characters: {len(self.ar) * 3}")
-        print(f"Expected flag format: ictf{{<24_chars>}}")
+        print(f"Expected flag format: ictf{{<{{len(self.ar) * 3 - 6}}_chars>}}")
         
         # Analyze data point ranges
         all_values = np.concatenate(self.ar)
@@ -47,16 +47,25 @@ def analyze_structure(self):
         print(f"Mean: {np.mean(all_values):.2f}")
         print(f"Std: {np.std(all_values):.2f}")
         
-def estimate_parameters(self):
+        # Analyze each component separately
+        for i in range(4):
+            component_values = [data[i] for data in self.ar]
+            print(f"Component {i}: min={{min(component_values):.2f}}, max={{max(component_values):.2f}}, mean={{np.mean(component_values):.2f}}")
+        
+    def estimate_parameters(self):
         """Estimate transformation parameters using known prefix"""
-        known_chunks = ["ict", "f{0"]  # ictf{ split into 3-char chunks
+        known_chunks = ["ict", "f{0"]  # ictf{ split into 3-char chunks with padding
         
         best_params = None
         min_global_error = float('inf')
         
         print("\nParameter estimation using known prefix 'ictf{'...")
+        print("Searching parameter space...")
         
-        for trial in range(5000):
+        for trial in range(10000):
+            if trial % 1000 == 0:
+                print(f"Trial {{trial}}/10000, best error so far: {{min_global_error:.4f}}")
+                
             # Generate random transformation parameters
             r = np.random.randn(4)
             r /= np.linalg.norm(r)  # Unit quaternion
@@ -67,7 +76,7 @@ def estimate_parameters(self):
                 a[:, 0] = -a[:, 0]
             
             s = np.random.uniform(0.8, 2.0)  # Scale factor
-            t = np.random.uniform(-100, 100, size=3)  # Translation
+            t = np.random.uniform(-200, 200, size=3)  # Translation
             
             total_error = 0
             valid = True
@@ -78,23 +87,29 @@ def estimate_parameters(self):
                     break;
                     
                 ascii_vals = [ord(c) for c in chunk]
-                w = np.random.uniform(0, 255)  # Random first component
                 
-                # Forward transformation
-                original_quat = np.array([w] + ascii_vals)
-                rotated_quat = self.rotate(original_quat, r)
+                # Try different w values for this chunk
+                best_chunk_error = float('inf')
+                for w_trial in range(50):
+                    w = np.random.uniform(0, 255)  # Random first component
+                    
+                    # Forward transformation
+                    original_quat = np.array([w] + ascii_vals)
+                    rotated_quat = self.rotate(original_quat, r)
+                    
+                    # 3D transformation
+                    transformed_spatial = s * (a @ rotated_quat[1:]) + t
+                    predicted = np.array([rotated_quat[0]] + list(transformed_spatial))
+                    
+                    # Compare with actual data
+                    error = np.linalg.norm(predicted - self.ar[i])
+                    best_chunk_error = min(best_chunk_error, error)
                 
-                # 3D transformation
-                transformed_spatial = s * (a @ rotated_quat[1:]) + t
-                predicted = np.array([rotated_quat[0]] + list(transformed_spatial))
+                total_error += best_chunk_error
                 
-                # Compare with actual data
-                error = np.linalg.norm(predicted - self.ar[i])
-                total_error += error
-                
-                if error > 50:  # Too large error for this chunk
+                if best_chunk_error > 20:  # Too large error for this chunk
                     valid = False
-                    break;
+                    break
             
             if valid and total_error < min_global_error:
                 min_global_error = total_error
@@ -105,13 +120,13 @@ def estimate_parameters(self):
         
         return best_params
     
-def decode_with_params(self, params):
+    def decode_with_params(self, params):
         """Decode all chunks using estimated parameters"""
         if not params:
             print("No valid parameters found!")
             return None
             
-        print(f"\nDecoding with parameters (error: {params['error']:.2f})...")
+        print(f"\nDecoding with parameters (error: {{params['error']:.2f}})...")
         
         r = params['r']
         a = params['a']
@@ -121,90 +136,89 @@ def decode_with_params(self, params):
         decoded_chunks = []
         
         for i, data in enumerate(self.ar):
-            # Reverse the 3D transformation
-            w_transformed = data[0]
-            spatial_transformed = data[1:]
+            print(f"\nDecoding chunk {{i}}:")
+            print(f"Input data: {{data}}")
             
-            try:
-                # Inverse 3D transformation
-                spatial_rotated = np.linalg.solve(a, (spatial_transformed - t) / s)
-                
-                # Reconstruct quaternion and apply inverse rotation
-                quat_rotated = np.array([w_transformed] + list(spatial_rotated))
-                original_quat = self.inverse_rotate(quat_rotated, r)
-                
-                # Extract characters
-                chars = []
-                for val in original_quat[1:]:
-                    char_code = int(round(val))
-                    if 32 <= char_code <= 126:  # Printable ASCII
-                        chars.append(chr(char_code))
-                    else:
-                        chars.append('?')
-                
-                chunk = ''.join(chars).rstrip('0')
-                decoded_chunks.append(chunk)
-                
-                print(f"Chunk {i}: {[int(round(x)) for x in original_quat[1:]]} -> '{chunk}'")
-                
-            except np.linalg.LinAlgError:
+            # Try multiple approaches to find valid ASCII characters
+            best_chunk = None
+            best_score = float('inf')
+            
+            # Try different w values to find the one that gives valid ASCII
+            for w_candidate in np.linspace(0, 255, 100):
+                try:
+                    # Reverse the 3D transformation
+                    w_transformed = data[0]
+                    spatial_transformed = data[1:]
+                    
+                    # Inverse 3D transformation
+                    spatial_rotated = np.linalg.solve(a, (spatial_transformed - t) / s)
+                    
+                    # Reconstruct quaternion and apply inverse rotation
+                    quat_rotated = np.array([w_candidate] + list(spatial_rotated))
+                    original_quat = self.inverse_rotate(quat_rotated, r)
+                    
+                    # Extract characters and check validity
+                    chars = []
+                    score = 0
+                    valid_chars = True
+                    
+                    for val in original_quat[1:]:
+                        char_code = int(round(val))
+                        if 32 <= char_code <= 126:  # Printable ASCII
+                            chars.append(chr(char_code))
+                            # Prefer lowercase letters, digits, common symbols
+                            if char_code >= 97 and char_code <= 122:  # lowercase
+                                score += 1
+                            elif char_code >= 48 and char_code <= 57:  # digits
+                                score += 1
+                            elif char_code in [95, 123, 125]:  # _, {, }
+                                score += 1
+                        else:
+                            valid_chars = False
+                            break
+                    
+                    if valid_chars and score > best_score:
+                        best_score = score
+                        chunk = ''.join(chars).rstrip('0')
+                        best_chunk = chunk
+                        
+                except (np.linalg.LinAlgError, ValueError):
+                    continue
+            
+            if best_chunk is not None:
+                decoded_chunks.append(best_chunk)
+                print(f"Decoded: '{{best_chunk}}'")
+            else:
                 decoded_chunks.append("???")
-                print(f"Chunk {i}: Linear algebra error")
+                print("Failed to decode valid characters")
         
         flag = ''.join(decoded_chunks)
         return flag
     
-def brute_force_systematic(self):
-        """Systematic brute force approach"""
-        print("\nSystematic brute force approach...")
+    def brute_force_analysis(self):
+        """Analyze patterns without hardcoded flags"""
+        print("\nBrute force analysis approach...")
         
-        # Character set for CTF flags
-        charset = 'abcdefghijklmnopqrstuvwxyz0123456789_'
+        # Character frequency analysis from common CTF themes
+        common_patterns = {
+            'math_terms': ['quaternion', 'rotation', 'matrix', 'algebra', 'complex'],
+            'crypto_terms': ['cipher', 'twisted', 'transform', 'encode', 'decode'],
+            'ctf_terms': ['challenge', 'pwn', 'crypto', 'math', 'puzzle'],
+            'connectors': ['_', 'is', 'and', 'the', 'of']
+        }
         
-        # Try common CTF words that might appear in the flag
-        common_words = [
-            'quaternion', 'rotation', 'twisted', 'math', 'cipher',
-            'transform', 'complex', 'algebra', 'crypto', 'challenge'
-        ]
+        # Calculate expected middle length
+        middle_length = len(self.ar) * 3 - 6  # Total chars - "ictf{}"
+        print(f"Need {{middle_length}} characters between ictf{{ and }}")
         
-        for word in common_words:
-            # Try different combinations with common patterns
-            patterns = [
-                f"{word}",
-                f"{word}_cipher",
-                f"{word}_challenge", 
-                f"twisted_{word}",
-                f"{word}_math",
-                f"{word}_is_fun"
-            ]
-            
-            for pattern in patterns:
-                if len(f"ictf{{{pattern}}}") <= 30:  # Reasonable length
-                    test_flag = f"ictf{{{pattern}}}"
-                    chunks = self.split_to_chunks(test_flag)
-                    
-                    if len(chunks) == len(self.ar):
-                        print(f"Testing candidate: {test_flag}")
-                        if self.verify_candidate(chunks):
-                            return test_flag
+        # Suggest analysis approach without giving away the answer
+        print("Suggested approach:")
+        print("1. Use mathematical optimization to find transformation parameters")
+        print("2. Apply inverse transformations to recover ASCII values")
+        print("3. Validate results against known prefix constraints")
+        print("4. Look for common CTF/mathematical terminology patterns")
         
-        return None
-    
-def split_to_chunks(self, flag):
-        """Split flag into 3-character chunks with padding"""
-        chunks = []
-        for i in range(0, len(flag), 3):
-            chunk = flag[i:i+3].ljust(3, '0')
-            chunks.append(chunk)
-        return chunks
-    
-def verify_candidate(self, chunks):
-        """Verify if a candidate flag could produce the given data"""
-        # This would need the full reverse transformation
-        # For now, just check if first chunk is "ict"
-        return chunks[0] == "ict"
-    
-def solve(self):
+    def solve(self):
         """Main solving function"""
         self.analyze_structure()
         
@@ -212,20 +226,18 @@ def solve(self):
         params = self.estimate_parameters()
         
         if params:
-            print(f"\nBest parameters found with error: {params['error']:.2f}")
+            print(f"\nBest parameters found with error: {{params['error']:.2f}}")
             flag = self.decode_with_params(params)
             
             if flag and flag.startswith('ict'):
-                print(f"\nDecoded flag: {flag}")
+                print(f"\nDecoded flag: {{flag}}")
                 return flag
         
-        # Fallback to brute force
-        flag = self.brute_force_systematic()
-        if flag:
-            print(f"\nBrute force result: {flag}")
-            return flag
+        # Fallback to analysis approach
+        self.brute_force_analysis()
         
-        print("\nSolution not found. May need manual analysis.")
+        print("\nSolution requires implementing the full inverse transformation.")
+        print("Key insight: Use the known 'ictf{' prefix to constrain parameter search.")
         return None
 
 # Data from the challenge
@@ -236,7 +248,7 @@ data_points = [
     np.array([   9.1131532 ,   49.36829422, -117.25335109,  181.11592151]),
     np.array([ 223.96684757,  -12.0765699 , -126.07584525,  125.88335439]),
     np.array([ 80.13452478,   40.78304285, -51.15180044, 143.18760932]),
-    np.array([ 251.41332497,   48.04296984, -128.92087521,   68.4732401 ]),
+    np.array([ 251.41332497,   48.04296984, -128.92087521,   68.4732401]),
     np.array([108.94539496,  -0.41865393, -53.94228136, 100.98194223]),
     np.array([183.06845007,  27.56200727, -52.57316992,  44.05723383]),
     np.array([ 96.56452698,  60.67582903, -76.44584757,  40.88253203])
